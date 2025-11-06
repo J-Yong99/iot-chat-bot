@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'bot_avatar.dart';
 
 class TypingIndicator extends StatefulWidget {
   const TypingIndicator({super.key});
@@ -9,26 +10,22 @@ class TypingIndicator extends StatefulWidget {
 
 class _TypingIndicatorState extends State<TypingIndicator>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _dot1;
-  late final Animation<double> _dot2;
-  late final Animation<double> _dot3;
+  late AnimationController _controller;
+  late Animation<double> _animation;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
-      duration: const Duration(seconds: 1),
-    )..repeat();
-    _dot1 = Tween(begin: 0.0, end: -4.0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.6)),
-    );
-    _dot2 = Tween(begin: 0.0, end: -4.0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.2, 0.8)),
-    );
-    _dot3 = Tween(begin: 0.0, end: -4.0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.4, 1.0)),
+    )..repeat(); // 무한 반복
+
+    _animation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.0, 1.0, curve: Curves.easeInOut),
+      ),
     );
   }
 
@@ -38,37 +35,49 @@ class _TypingIndicatorState extends State<TypingIndicator>
     super.dispose();
   }
 
-  Widget _dot(Animation<double> anim) => AnimatedBuilder(
-    animation: anim,
-    builder: (_, __) => Transform.translate(
-      offset: Offset(0, anim.value),
-      child: Container(
-        width: 8,
-        height: 8,
-        margin: const EdgeInsets.symmetric(horizontal: 3),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade600,
-          shape: BoxShape.circle,
-        ),
-      ),
-    ),
-  );
-
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade300,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [_dot(_dot1), _dot(_dot2), _dot(_dot3)],
-        ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // BotAvatar 제거
+          const SizedBox(width: 10), // 간격만 남기고 아바타 삭제
+          // 타이핑 말풍선
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(3, (index) {
+                return AnimatedBuilder(
+                  animation: _animation,
+                  builder: (context, child) {
+                    final delay = index * 0.2;
+                    final progress = (_animation.value - delay) % 1.0;
+                    final scale =
+                        1.0 + Curves.easeInOut.transform(progress) * 0.4;
+
+                    return Transform.scale(
+                      scale: scale,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2.5),
+                        child: CircleAvatar(
+                          radius: 3.0,
+                          backgroundColor: Colors.grey.shade700,
+                        ),
+                      ),
+                    );
+                  },
+                );
+              }),
+            ),
+          ),
+        ],
       ),
     );
   }
