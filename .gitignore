@@ -48,3 +48,5 @@ app.*.map.json
 .idea/
 .vscode/
 .DS_Store
+
+**/build/
