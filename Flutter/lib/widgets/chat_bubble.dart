@@ -39,15 +39,15 @@ class ChatBubble extends StatelessWidget {
       ),
     );
 
-    // 봇 메시지 (왼쪽)
+    // 봇 메시지 (왼쪽)에서 BotAvatar 제거
     if (isBot) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const BotAvatar(), // 여기에 BotAvatar가 왼쪽에 보이도록 설정
-            const SizedBox(width: 10), // BotAvatar와 말풍선 간 간격 설정
+            // BotAvatar 제거
+            const SizedBox(width: 10),  // 간격만 남기고 아바타 삭제
             Flexible(child: bubble),
           ],
         ),

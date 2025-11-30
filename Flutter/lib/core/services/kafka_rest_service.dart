@@ -31,9 +31,9 @@ class KafkaRestService {
       print('📡 REST Proxy 연결 시도: $restProxyUrl');
 
       // 연결 테스트
-      final testResponse = await http.get(
-        Uri.parse('$restProxyUrl/topics'),
-      ).timeout(const Duration(seconds: 5));
+      final testResponse = await http
+          .get(Uri.parse('$restProxyUrl/topics'))
+          .timeout(const Duration(seconds: 5));
 
       if (testResponse.statusCode != 200) {
         throw Exception('REST Proxy 응답 실패: ${testResponse.statusCode}');
@@ -52,7 +52,6 @@ class KafkaRestService {
 
       _isConnected = true;
       print('✅ Kafka REST Proxy 초기화 완료');
-
     } catch (e) {
       print('❌ REST Proxy 연결 실패: $e');
       _isConnected = false;
@@ -62,19 +61,23 @@ class KafkaRestService {
 
   /// Consumer 인스턴스 생성
   Future<void> _createConsumerInstance() async {
-    final instanceName = 'flutter-$currentUserId-${DateTime.now().millisecondsSinceEpoch}';
+    final instanceName =
+        'flutter-$currentUserId-${DateTime.now().millisecondsSinceEpoch}';
 
     try {
-      final response = await http.post(
-        Uri.parse('$restProxyUrl/consumers/$consumerGroup'),
-        headers: {'Content-Type': 'application/vnd.kafka.v2+json'},
-        body: jsonEncode({
-          'name': instanceName,
-          'format': 'json',
-          'auto.offset.reset': 'latest',
-          'auto.commit.enable': 'true',
-        }),
-      ).timeout(const Duration(seconds: 5));
+      print("🛰 consumer base_uri: $consumerBaseUri");
+      final response = await http
+          .post(
+            Uri.parse('$restProxyUrl/consumers/$consumerGroup'),
+            headers: {'Content-Type': 'application/vnd.kafka.v2+json'},
+            body: jsonEncode({
+              'name': instanceName,
+              'format': 'json',
+              'auto.offset.reset': 'latest',
+              'auto.commit.enable': 'true',
+            }),
+          )
+          .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -82,7 +85,9 @@ class KafkaRestService {
         consumerBaseUri = data['base_uri'];
         print('✅ Consumer 생성: $consumerInstanceId');
       } else {
-        throw Exception('Consumer 생성 실패: ${response.statusCode} ${response.body}');
+        throw Exception(
+          'Consumer 생성 실패: ${response.statusCode} ${response.body}',
+        );
       }
     } catch (e) {
       print('❌ Consumer 생성 에러: $e');
@@ -93,13 +98,15 @@ class KafkaRestService {
   /// 토픽 구독
   Future<void> _subscribeToTopics() async {
     try {
-      final response = await http.post(
-        Uri.parse('$consumerBaseUri/subscription'),
-        headers: {'Content-Type': 'application/vnd.kafka.v2+json'},
-        body: jsonEncode({
-          'topics': ['chat-responses']
-        }),
-      ).timeout(const Duration(seconds: 5));
+      final response = await http
+          .post(
+            Uri.parse('$consumerBaseUri/subscription'),
+            headers: {'Content-Type': 'application/vnd.kafka.v2+json'},
+            body: jsonEncode({
+              'topics': ['chat-responses'],
+            }),
+          )
+          .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 204 || response.statusCode == 200) {
         print('✅ 토픽 구독 성공: chat-responses');
@@ -119,31 +126,28 @@ class KafkaRestService {
     }
 
     final messageId = 'msg-${_uuid.v4()}';
+    // final messageId = 'msg-1';
 
     final message = {
       'message_id': messageId,
       'user_id': currentUserId,
       'question': question,
       'timestamp': DateTime.now().toIso8601String(),
-      'metadata': {
-        'platform': 'flutter',
-        'language': 'ko',
-      }
+      'metadata': {'platform': 'flutter', 'language': 'ko'},
     };
 
     try {
-      final response = await http.post(
-        Uri.parse('$restProxyUrl/topics/chat-requests'),
-        headers: {'Content-Type': 'application/vnd.kafka.json.v2+json'},
-        body: jsonEncode({
-          'records': [
-            {
-              'key': currentUserId,
-              'value': message,
-            }
-          ]
-        }),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$restProxyUrl/topics/chat-requests'),
+            headers: {'Content-Type': 'application/vnd.kafka.json.v2+json'},
+            body: jsonEncode({
+              'records': [
+                {'key': currentUserId, 'value': message},
+              ],
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         print('📤 메시지 전송 성공: $messageId');
@@ -151,7 +155,6 @@ class KafkaRestService {
       } else {
         throw Exception('전송 실패: ${response.statusCode} ${response.body}');
       }
-
     } catch (e) {
       print('❌ 메시지 전송 에러: $e');
       rethrow;
@@ -159,7 +162,10 @@ class KafkaRestService {
   }
 
   /// 콜백 등록
-  void registerCallback(String messageId, Function(Map<String, dynamic>) callback) {
+  void registerCallback(
+    String messageId,
+    Function(Map<String, dynamic>) callback,
+  ) {
     _callbacks[messageId] = callback;
     print('📝 콜백 등록: $messageId (대기 중: ${_callbacks.length}개)');
   }
@@ -168,63 +174,78 @@ class KafkaRestService {
   void _startPolling() {
     print('🔄 폴링 시작 ($_pollingIntervalSeconds초 간격)');
 
-    _pollingTimer = Timer.periodic(
-      Duration(seconds: _pollingIntervalSeconds),
-          (timer) async {
-        if (!_isConnected || consumerBaseUri == null) {
-          timer.cancel();
-          return;
-        }
+    _pollingTimer = Timer.periodic(Duration(seconds: _pollingIntervalSeconds), (
+      timer,
+    ) async {
+      if (!_isConnected || consumerBaseUri == null) {
+        timer.cancel();
+        return;
+      }
 
-        if (_callbacks.isEmpty) {
-          // 대기 중인 메시지 없으면 폴링 스킵
-          return;
-        }
+      if (_callbacks.isEmpty) {
+        // 대기 중인 메시지 없으면 폴링 스킵
+        return;
+      }
 
-        try {
-          final response = await http.get(
-            Uri.parse('$consumerBaseUri/records'),
-            headers: {'Accept': 'application/vnd.kafka.json.v2+json'},
-          ).timeout(const Duration(seconds: 5));
+      try {
+        final response = await http
+            .get(
+              Uri.parse('$consumerBaseUri/records'),
+              headers: {'Accept': 'application/vnd.kafka.json.v2+json'},
+            )
+            .timeout(const Duration(seconds: 5));
 
-          if (response.statusCode == 200) {
-            final records = jsonDecode(response.body) as List;
+        print("📥 폴링 응답 상태코드: ${response.statusCode}");
 
-            if (records.isNotEmpty) {
-              print('📥 ${records.length}개 메시지 수신');
+        // 응답 RAW 데이터 출력
+        print("📭 RAW 응답 데이터: ${response.body}");
 
-              for (var record in records) {
-                final value = record['value'];
+        if (response.statusCode == 200) {
+          final records = jsonDecode(response.body) as List;
 
-                if (value != null && value is Map) {
-                  // ✅ 타입 캐스팅 추가
-                  final typedValue = Map<String, dynamic>.from(value);
+          if (records.isNotEmpty) {
+            print('📥 ${records.length}개 메시지 수신');
+            for (var record in records) {
+              final rawValue = record['value'];
 
-                  final messageId = typedValue['message_id'] as String?;
-                  final userId = typedValue['user_id'] as String?;
+              if (rawValue == null || rawValue is! List) continue;
 
-                  // 내 메시지만 처리
-                  if (userId == currentUserId &&
-                      messageId != null &&
-                      _callbacks.containsKey(messageId)) {
-                    print('✅ 답변 매칭: $messageId');
-                    _callbacks[messageId]!(typedValue);  // ✅ 타입 캐스팅된 값 전달
-                    _callbacks.remove(messageId);
+              for (var element in rawValue) {
+                if (element is! Map) continue;
+
+                final typedValue = Map<String, dynamic>.from(element);
+
+                // 🔧 UTF-8 복원 대상 필드들
+                void restoreUtf8(String key) {
+                  if (typedValue[key] is String) {
+                    typedValue[key] = fixUtf8(typedValue[key]);
                   }
+                }
+
+                restoreUtf8("answer");
+                restoreUtf8("text");
+                restoreUtf8("response");
+                restoreUtf8("message_id");
+                restoreUtf8("user_id");
+
+                final messageId = typedValue['message_id'];
+                if (messageId != null && _callbacks.containsKey(messageId)) {
+                  print("🎯 콜백 실행: $messageId");
+                  _callbacks[messageId]!(typedValue);
+                  _callbacks.remove(messageId);
                 }
               }
             }
-          } else if (response.statusCode != 404) {
-            // 404는 메시지 없음 (정상), 다른 에러만 로그
-            print('⚠️ 폴링 응답: ${response.statusCode}');
           }
-
-        } catch (e) {
-          // 폴링 에러는 조용히 무시 (다음 주기 재시도)
-          // print('⚠️ 폴링 에러: $e');
+        } else if (response.statusCode != 404) {
+          // 404는 메시지 없음 (정상), 다른 에러만 로그
+          print('⚠️ 폴링 응답: ${response.statusCode}');
         }
-      },
-    );
+      } catch (e) {
+        // 폴링 에러는 조용히 무시 (다음 주기 재시도)
+        // print('⚠️ 폴링 에러: $e');
+      }
+    });
   }
 
   bool get isConnected => _isConnected;
@@ -249,5 +270,18 @@ class KafkaRestService {
     _isConnected = false;
     consumerInstanceId = null;
     consumerBaseUri = null;
+  }
+
+  String fixUtf8(String input) {
+    try {
+      return utf8.decode(input.runes.toList());
+    } catch (_) {}
+
+    try {
+      // Latin-1 → UTF-8 재해석
+      return utf8.decode(input.codeUnits);
+    } catch (_) {}
+
+    return input; // 실패하면 원본
   }
 }

@@ -38,8 +38,13 @@ class ChatApi {
       _kafka.registerCallback(messageId, (response) {
         if (!completer.isCompleted) {
           final result = {
-            "text": response["response"] ?? response["text"] ?? "",
-            "duration": ((response["processing_time_ms"] ?? 0) / 1000.0) as double,
+            "text":
+                response["answer"] ??
+                response["text"] ??
+                response["response"] ??
+                "",
+            "duration":
+                ((response["processing_time_ms"] ?? 0) / 1000.0) as double,
             "lang": response["lang"] ?? "ko",
           };
 
@@ -61,7 +66,6 @@ class ChatApi {
       });
 
       return completer.future;
-
     } catch (e) {
       print('❌ sendQuestion 에러: $e');
       return {
@@ -76,7 +80,8 @@ class ChatApi {
   static Future<Map<String, dynamic>> fakeSttApi(String userMessage) async {
     await Future.delayed(const Duration(seconds: 2));
     return {
-      "text": "거실에 불이 났다면 즉시 **안전을 우선**으로 생각하세요.\n"
+      "text":
+          "거실에 불이 났다면 즉시 **안전을 우선**으로 생각하세요.\n"
           "1. **구조를 위해 즉시 대피**하세요.\n"
           "2. **소화기**나 **화재 대응 방법**을 활용해 초기 진화를 시도할 수 있지만, **안전이 우선**입니다.\n"
           "3. **소방서(119)**에 신고하세요.",
