@@ -6,7 +6,7 @@ import 'package:uuid/uuid.dart';
 
 class KafkaRestService {
   static const String restProxyUrl = 'http://118.36.36.206:8082';
-  static const String consumerGroup = 'flutter-group';
+  static String consumerGroup = 'flutter-${Uuid().v4()}';
 
   String? currentUserId;
   String? consumerInstanceId;
@@ -66,10 +66,14 @@ class KafkaRestService {
 
     try {
       print("🛰 consumer base_uri: $consumerBaseUri");
+
       final response = await http
           .post(
             Uri.parse('$restProxyUrl/consumers/$consumerGroup'),
-            headers: {'Content-Type': 'application/vnd.kafka.v2+json'},
+            headers: {
+              'Content-Type': 'application/vnd.kafka.v2+json',
+              'Accept': 'application/vnd.kafka.v2+json',
+            },
             body: jsonEncode({
               'name': instanceName,
               'format': 'json',
@@ -83,11 +87,19 @@ class KafkaRestService {
         final data = jsonDecode(response.body);
         consumerInstanceId = data['instance_id'];
         consumerBaseUri = data['base_uri'];
+
+        // 🔥🔥🔥 정확한 위치: instance_id 세팅 직후
+        if (consumerBaseUri == null && consumerInstanceId != null) {
+          consumerBaseUri =
+              '$restProxyUrl/consumers/$consumerGroup/instances/$consumerInstanceId';
+          print("⚠️ base_uri 누락 → fallback 생성: $consumerBaseUri");
+        }
+        print('🔥 Consumer 생성 raw response: ${response.body}');
+        print('🔥 instance_id 파싱 결과: $consumerInstanceId');
+        print('🔥 base_uri 파싱 결과: $consumerBaseUri');
         print('✅ Consumer 생성: $consumerInstanceId');
       } else {
-        throw Exception(
-          'Consumer 생성 실패: ${response.statusCode} ${response.body}',
-        );
+        throw Exception('Consumer 생성 실패: ${response.statusCode}');
       }
     } catch (e) {
       print('❌ Consumer 생성 에러: $e');
@@ -101,7 +113,10 @@ class KafkaRestService {
       final response = await http
           .post(
             Uri.parse('$consumerBaseUri/subscription'),
-            headers: {'Content-Type': 'application/vnd.kafka.v2+json'},
+            headers: {
+              'Content-Type': 'application/vnd.kafka.v2+json',
+              'Accept': 'application/vnd.kafka.v2+json', // ★ 중요
+            },
             body: jsonEncode({
               'topics': ['chat-responses'],
             }),
@@ -208,9 +223,17 @@ class KafkaRestService {
             for (var record in records) {
               final rawValue = record['value'];
 
-              if (rawValue == null || rawValue is! List) continue;
+              if (rawValue == null) return;
 
-              for (var element in rawValue) {
+              // value가 배열이 아니라 단일 객체(Map)인 경우 처리
+              List elements = [];
+              if (rawValue is List) {
+                elements = rawValue;
+              } else if (rawValue is Map) {
+                elements = [rawValue];
+              }
+
+              for (var element in elements) {
                 if (element is! Map) continue;
 
                 final typedValue = Map<String, dynamic>.from(element);

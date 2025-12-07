@@ -8,16 +8,17 @@ class ChatApi {
 
   /// Kafka REST Proxy 초기화
   static Future<void> init(String userId) async {
-    if (!_initialized) {
-      try {
-        await _kafka.init(userId);
-        _initialized = true;
-        print('✅ ChatApi 초기화 완료');
-      } catch (e) {
-        print('❌ ChatApi 초기화 실패: $e');
-        _initialized = false;
-        rethrow;
-      }
+    try {
+      // 항상 새로 초기화되도록 강제
+      await _kafka.dispose();
+
+      await _kafka.init(userId);
+      _initialized = true;
+      print('✅ ChatApi 초기화 완료 (강제 재초기화)');
+    } catch (e) {
+      print('❌ ChatApi 초기화 실패: $e');
+      _initialized = false;
+      rethrow;
     }
   }
 
