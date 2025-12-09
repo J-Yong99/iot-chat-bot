@@ -12,7 +12,17 @@ class ChatBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final isBot = !message.isMe;
 
-    // 공통 말풍선
+    // 말풍선 색상 설정
+    final bubbleColor = message.isMe
+        ? Colors.blueAccent
+        : (message.isProcessing ? Colors.grey.shade400 : Colors.grey.shade300);
+
+    // 텍스트 색상 설정
+    final textColor = message.isMe ? Colors.white : Colors.black87;
+
+    // ----------------------------------------------------
+    // 공통 말풍선 (Bubble Content)
+    // ----------------------------------------------------
     final bubble = Container(
       constraints: BoxConstraints(
         maxWidth: MediaQuery.of(context).size.width * 0.7,
@@ -20,13 +30,37 @@ class ChatBubble extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: message.isMe ? Colors.blueAccent : Colors.grey.shade300,
+        color: bubbleColor,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          buildRichText(message.text, message.isMe),
+          Row(
+            // 텍스트와 로딩 인디케이터를 한 줄에 표시
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // 1. 메시지 텍스트
+              Flexible(child: buildRichText(message.text, message.isMe)),
+
+              // 2. STT 처리 중 로딩 인디케이터 (추가)
+              if (message.isProcessing)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8.0),
+                  child: SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      color: message.isMe ? Colors.white : Colors.blueAccent,
+                      strokeWidth: 2,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+
+          // 3. 봇 메시지 상세 정보 (Duration, Lang)
           if (isBot && (message.duration != null || message.lang != null))
             Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -38,16 +72,17 @@ class ChatBubble extends StatelessWidget {
         ],
       ),
     );
+    // ----------------------------------------------------
 
-    // 봇 메시지 (왼쪽)에서 BotAvatar 제거
+    // 봇 메시지 (왼쪽)
     if (isBot) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // BotAvatar 제거
-            const SizedBox(width: 10),  // 간격만 남기고 아바타 삭제
+            const BotAvatar(), // ✅ 봇 프로필 다시 추가!
+            const SizedBox(width: 10),
             Flexible(child: bubble),
           ],
         ),
@@ -61,6 +96,8 @@ class ChatBubble extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           Flexible(child: bubble),
+          // 내 메시지 오른쪽에는 아바타가 없으므로 SizedBox(width: 10)을 유지하거나 제거할 수 있습니다.
+          // 일관성을 위해 10 간격을 유지합니다.
           const SizedBox(width: 10),
         ],
       ),

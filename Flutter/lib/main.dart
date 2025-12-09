@@ -1,7 +1,7 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import 'screens/chat_screen.dart';
-import 'test/kafka_connection_test.dart';  // 테스트 import
+import 'test/kafka_connection_test.dart'; // 테스트 import
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
