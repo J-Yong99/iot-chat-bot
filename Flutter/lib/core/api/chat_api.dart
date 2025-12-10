@@ -107,7 +107,7 @@ class ChatApi {
       });
 
       // 타임아웃 (30초)
-      Timer(const Duration(seconds: 30), () {
+      Timer(const Duration(seconds: 300), () {
         if (!completer.isCompleted) {
           print('⏱️ 타임아웃: $messageId');
           completer.complete({
