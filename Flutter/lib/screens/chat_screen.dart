@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+
 import '../core/api/chat_api.dart';
-import '../models/message.dart'; // Message 모델이 별도 파일에 있다고 가정
+import '../models/message.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/typing_indicator.dart';
 
@@ -16,7 +17,11 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<Message> _messages = [];
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  bool _isTyping = false;
+
+  // 포커스/입력 상태 제어
+  final FocusNode _focusNode = FocusNode();
+  bool _isFocused = false;
+
   bool _isKafkaMode = false;
   bool _isKafkaConnected = false;
   String _connectionStatus = '연결 중...';
@@ -27,12 +32,23 @@ class _ChatScreenState extends State<ChatScreen> {
   int? _sttProcessingMessageIndex;
   String? _lastRecognizedText;
 
+  // 💡 _responseIndexMap은 이제 _sendMessage 함수 내부에서 로컬로 관리되므로 클래스 멤버에서 제거했습니다.
+
   @override
   void initState() {
     super.initState();
     _initKafka();
     _speech = stt.SpeechToText();
+    _focusNode.addListener(_handleFocusChange);
   }
+
+  void _handleFocusChange() {
+    setState(() {
+      _isFocused = _focusNode.hasFocus;
+    });
+  }
+
+  // --- 핵심 로직 ---
 
   Future<void> _initKafka() async {
     setState(() {
@@ -72,7 +88,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendMessage(String text, {bool isSttMode = false}) async {
     if (text.trim().isEmpty) return;
 
-    // 텍스트 입력 모드일 때만 사용자 메시지 추가 및 입력 필드 비우기
+    // 1. 사용자 질문 메시지 추가
     if (!isSttMode) {
       setState(() {
         _messages.add(Message(text: text, isMe: true));
@@ -80,34 +96,45 @@ class _ChatScreenState extends State<ChatScreen> {
       _controller.clear();
     }
 
-    // API 호출 전 타이핑 인디케이터 활성화
+    // 2. 봇 응답을 위한 로딩 메시지 추가 (TypingIndicator를 표시할 자리)
+    final loadingMessage = Message(
+      text: "...",
+      isMe: false,
+      isProcessing: true, // 로딩 상태
+    );
+
     setState(() {
-      _isTyping = true;
+      _messages.add(loadingMessage);
     });
     _scrollToBottom();
 
+    // 💡 [핵심] 응답 메시지의 인덱스를 저장하여 나중에 이 위치를 덮어씁니다.
+    final responseIndex = _messages.length - 1;
+
     try {
-      // Kafka 모드 선택
       final res = (_isKafkaMode && _isKafkaConnected)
           ? await ChatApi.sendQuestion(text)
           : await ChatApi.fakeSttApi(text);
 
       setState(() {
-        _isTyping = false;
-        _messages.add(
-          Message(
-            text: res["text"],
-            isMe: false,
-            duration: res["duration"],
-            lang: res["lang"],
-          ),
+        // 해당 인덱스의 메시지를 최종 답변으로 업데이트
+        _messages[responseIndex] = Message(
+          text: res["text"],
+          isMe: false,
+          duration: res["duration"],
+          lang: res["lang"],
+          isProcessing: false,
         );
       });
     } catch (e) {
       setState(() {
-        _isTyping = false;
-        _messages.add(
-          Message(text: "❌ 오류 발생: $e", isMe: false, duration: 0.0, lang: "ko"),
+        // 오류 발생 시에도 해당 인덱스의 메시지를 업데이트
+        _messages[responseIndex] = Message(
+          text: "❌ 오류 발생: $e",
+          isMe: false,
+          duration: 0.0,
+          lang: "ko",
+          isProcessing: false,
         );
       });
     }
@@ -119,16 +146,14 @@ class _ChatScreenState extends State<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
       _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent + 100,
+        _scrollController.position.maxScrollExtent,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
     });
   }
 
-  // --------------------------------------------------
-  // STT 로직 (speech_to_text 사용)
-  // --------------------------------------------------
+  // STT 로직 (생략 없이 유지)
 
   Future<void> _startListening() async {
     if (_isListening) {
@@ -142,7 +167,6 @@ class _ChatScreenState extends State<ChatScreen> {
         if (val == stt.SpeechToText.notListeningStatus &&
             _isListening &&
             _lastRecognizedText != null) {
-          // 음성 인식이 자동으로 끝났을 때만 처리
           _processStt(_lastRecognizedText!);
         }
       },
@@ -160,7 +184,6 @@ class _ChatScreenState extends State<ChatScreen> {
         onResult: (val) {
           if (val.finalResult) {
             _lastRecognizedText = val.recognizedWords;
-            // 실시간 피드백을 위해 임시 메시지를 업데이트합니다.
             _replaceTempMessage(
               "🎤 ${val.recognizedWords}",
               isError: false,
@@ -172,7 +195,6 @@ class _ChatScreenState extends State<ChatScreen> {
         pauseFor: const Duration(seconds: 5),
       );
 
-      // 임시 "듣는 중" 메시지 띄우기
       final tempMessage = Message(
         text: "🎤 듣는 중...",
         isMe: true,
@@ -203,10 +225,8 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     if (_lastRecognizedText != null && _lastRecognizedText!.trim().isNotEmpty) {
-      // 최종 인식된 텍스트로 STT 프로세스 시작
       _processStt(_lastRecognizedText!);
     } else {
-      // 텍스트가 없으면 임시 메시지 제거
       _removeTempMessage();
       if (mounted) {
         ScaffoldMessenger.of(
@@ -217,10 +237,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _processStt(String transcribedText) async {
-    // 1. 임시 메시지 업데이트 (STT 완료 상태로)
     _replaceTempMessage(transcribedText, isError: false, isRealtime: false);
-
-    // 2. STT 완료 후 Kafka/Fake API 로직 실행
     await _sendMessage(transcribedText, isSttMode: true);
   }
 
@@ -235,13 +252,11 @@ class _ChatScreenState extends State<ChatScreen> {
         final currentMessage = _messages[_sttProcessingMessageIndex!];
 
         if (isRealtime) {
-          // 실시간 업데이트 (Processing 상태 유지)
           _messages[_sttProcessingMessageIndex!] = currentMessage.copyWith(
             text: newText,
             isProcessing: true,
           );
         } else if (isError) {
-          // 최종 에러 처리
           _messages[_sttProcessingMessageIndex!] = Message(
             text: "❌ $newText",
             isMe: false,
@@ -249,7 +264,6 @@ class _ChatScreenState extends State<ChatScreen> {
             lang: 'ko',
           );
         } else {
-          // 최종 성공 처리 (Kafka 요청 준비)
           _messages[_sttProcessingMessageIndex!] = Message(
             text: newText,
             isMe: true,
@@ -271,148 +285,243 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // --------------------------------------------------
-  // UI 빌더
-  // --------------------------------------------------
+  // --- UI 빌더 ---
 
-  Widget _buildInputWidget() {
-    final showSendButton = _controller.text.trim().isNotEmpty || _isListening;
-
+  Widget _buildTopHeader() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      color: Colors.grey.shade200,
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              decoration: const InputDecoration(
-                hintText: '메시지를 입력하세요...',
-                border: InputBorder.none,
-              ),
-              onChanged: (text) => setState(() {}),
-              onSubmitted: (text) => _sendMessage(text),
-              // 녹음 중에는 텍스트 입력 비활성화
-              enabled: !_isListening,
-            ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F9F9),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(16),
+          bottomRight: Radius.circular(16),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
           ),
-
-          if (showSendButton)
-            // 보내기/정지 버튼
-            IconButton(
-              icon: Icon(
-                _isListening ? Icons.stop_circle_outlined : Icons.send,
-                color: _isListening ? Colors.red : Colors.blueAccent,
-              ),
-              // 녹음 중이면 중지 함수 호출, 아니면 보내기 함수 호출
-              onPressed: _isListening
-                  ? _stopListening
-                  : () => _sendMessage(_controller.text),
-            )
-          else
-            // 마이크 버튼
-            IconButton(
-              icon: const Icon(Icons.mic, color: Colors.blueAccent),
-              onPressed: _startListening,
-            ),
         ],
+      ),
+      padding: const EdgeInsets.only(
+        top: 8.0,
+        bottom: 8.0,
+        left: 16.0,
+        right: 16.0,
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _buildNavigationActions(),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: _buildConnectionStatus(),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
+  Widget _buildNavigationActions() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _isKafkaMode ? 'Kafka' : 'Demo',
+          style: const TextStyle(fontSize: 14, color: Colors.black54),
+        ),
+        Switch(
+          value: _isKafkaMode,
+          onChanged: _isKafkaConnected
+              ? (value) {
+                  setState(() {
+                    _isKafkaMode = value;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        _isKafkaMode ? '🟢 Kafka 모드' : '🟠 Fake API 모드',
+                      ),
+                      duration: const Duration(seconds: 1),
+                    ),
+                  );
+                }
+              : null,
+          activeColor: Colors.blueAccent,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConnectionStatus() {
+    final statusColor = _isKafkaConnected
+        ? (_isKafkaMode ? Colors.green.shade700 : Colors.orange.shade700)
+        : Colors.red.shade700;
+
+    final statusText = _isKafkaMode && _isKafkaConnected
+        ? '🟢 Kafka 연결'
+        : _isKafkaConnected
+        ? '🟠 Local 모드'
+        : '🔴 $_connectionStatus';
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            statusText,
+            style: TextStyle(fontSize: 12, color: statusColor),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInputAndMicButton() {
+    final hasText = _controller.text.trim().isNotEmpty;
+
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: TextField(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    decoration: InputDecoration(
+                      hintText: (_isFocused || hasText)
+                          ? ''
+                          : 'message or voice',
+                      hintStyle: TextStyle(color: Colors.grey.shade400),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 8,
+                      ),
+                    ),
+                    onChanged: (text) => setState(() {}),
+                    onSubmitted: (text) => _sendMessage(text),
+                    enabled: !_isListening,
+                    maxLines: 1,
+                    minLines: 1,
+                    textAlign: (_isFocused || hasText)
+                        ? TextAlign.left
+                        : TextAlign.center,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+
+            SizedBox(
+              height: 48,
+              width: 48,
+              child: FloatingActionButton(
+                onPressed: () {
+                  if (_isListening) {
+                    _stopListening();
+                  } else if (hasText) {
+                    _sendMessage(_controller.text);
+                  } else {
+                    _startListening();
+                  }
+                },
+                elevation: 4,
+                backgroundColor: _isListening ? Colors.red : Colors.blueAccent,
+                child: Icon(
+                  _isListening
+                      ? Icons.stop_circle_outlined
+                      : (hasText ? Icons.send : Icons.mic),
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _dismissKeyboard() {
+    FocusScope.of(context).unfocus();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final itemCount = _messages.length + (_isTyping ? 1 : 0);
+    final itemCount = _messages.length;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('STT Chat Demo'),
-        actions: [
-          // Kafka 모드 토글
-          Row(
-            children: [
-              Text(
-                _isKafkaMode ? 'Kafka' : 'Fake',
-                style: const TextStyle(fontSize: 12),
-              ),
-              Switch(
-                value: _isKafkaMode,
-                onChanged: _isKafkaConnected
-                    ? (value) {
-                        setState(() {
-                          _isKafkaMode = value;
-                        });
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              _isKafkaMode ? '🟢 Kafka 모드' : '🟠 Fake API 모드',
-                            ),
-                            duration: const Duration(seconds: 1),
-                          ),
-                        );
-                      }
-                    : null, // Kafka 연결 안 되면 비활성화
-              ),
-            ],
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: Column(
-        children: [
-          // 연결 상태 표시
-          Container(
-            padding: const EdgeInsets.all(8),
-            color: _isKafkaConnected
-                ? (_isKafkaMode
-                      ? Colors.green.shade100
-                      : Colors.orange.shade100)
-                : Colors.red.shade100,
-            child: Row(
+    return GestureDetector(
+      onTap: _dismissKeyboard,
+      child: Scaffold(
+        backgroundColor: Colors.grey.shade100, // 예: F5F5F5
+        body: Stack(
+          children: [
+            Column(
               children: [
-                Icon(
-                  _isKafkaConnected
-                      ? (_isKafkaMode ? Icons.cloud_queue : Icons.cloud_off)
-                      : Icons.error_outline,
-                  size: 16,
-                  color: _isKafkaConnected
-                      ? (_isKafkaMode ? Colors.green : Colors.orange)
-                      : Colors.red,
-                ),
-                const SizedBox(width: 8),
+                _buildTopHeader(),
                 Expanded(
-                  child: Text(
-                    _isKafkaMode && _isKafkaConnected
-                        ? '🟢 Kafka 실시간 연결'
-                        : _isKafkaConnected
-                        ? '🟠 로컬 모드 (Fake API)'
-                        : '🔴 $_connectionStatus',
-                    style: const TextStyle(fontSize: 12),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 75.0),
+                    child: ListView.builder(
+                      reverse: false,
+                      controller: _scrollController,
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: itemCount,
+                      itemBuilder: (context, index) {
+                        final message = _messages[index];
+
+                        if (!message.isMe && message.isProcessing) {
+                          // 봇이 로딩 중일 때 TypingIndicator 표시
+                          return const TypingIndicator();
+                        }
+
+                        // 일반 메시지 또는 응답 완료된 봇 메시지 표시
+                        return ChatBubble(message: message);
+                      },
+                    ),
                   ),
                 ),
-                if (!_isKafkaConnected)
-                  TextButton(
-                    onPressed: _initKafka,
-                    child: const Text('재연결', style: TextStyle(fontSize: 12)),
-                  ),
               ],
             ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              itemCount: itemCount,
-              itemBuilder: (context, index) {
-                if (_isTyping && index == itemCount - 1) {
-                  return const TypingIndicator();
-                }
-                return ChatBubble(message: _messages[index]);
-              },
+
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: _buildInputAndMicButton(),
             ),
-          ),
-          const Divider(height: 1),
-          _buildInputWidget(),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -422,7 +531,9 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.dispose();
     _controller.dispose();
     ChatApi.dispose();
-    _speech.stop(); // STT 리소스 정리
+    _focusNode.removeListener(_handleFocusChange);
+    _focusNode.dispose();
+    _speech.stop();
     super.dispose();
   }
 }

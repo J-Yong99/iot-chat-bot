@@ -97,8 +97,9 @@ class ChatApi {
                 response["response"] ??
                 "",
             "duration":
-                ((response["processing_time_ms"] ?? 0) / 1000.0) as double,
-            "lang": response["lang"] ?? "ko",
+                ((response["metadata"]?["processing_time_ms"] ?? 0) / 1000.0)
+                    as double,
+            "lang": response["metadata"]?["language"] ?? "ko",
           };
 
           print('✅ 답변 처리 완료: $messageId');
@@ -112,7 +113,7 @@ class ChatApi {
           print('⏱️ 타임아웃: $messageId');
           completer.complete({
             "text": "⏱️ 응답 시간 초과 (30초). 네트워크를 확인하고 다시 시도해주세요.",
-            "duration": 0.0,
+            "duration": 30.0,
             "lang": "ko",
           });
         }

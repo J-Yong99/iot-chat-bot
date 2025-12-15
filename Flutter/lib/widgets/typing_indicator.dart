@@ -1,5 +1,7 @@
+// lib/widgets/typing_indicator.dart 전체 코드 수정
+
 import 'package:flutter/material.dart';
-import 'bot_avatar.dart';
+import 'bot_avatar.dart'; // BotAvatar를 사용하기 위해 import
 
 class TypingIndicator extends StatefulWidget {
   const TypingIndicator({super.key});
@@ -19,7 +21,7 @@ class _TypingIndicatorState extends State<TypingIndicator>
     _controller = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
-    )..repeat(); // 무한 반복
+    )..repeat();
 
     _animation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
@@ -42,8 +44,10 @@ class _TypingIndicatorState extends State<TypingIndicator>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // BotAvatar 제거
-          const SizedBox(width: 10), // 간격만 남기고 아바타 삭제
+          // 💡 [수정] BotAvatar 고정
+          const BotAvatar(),
+          const SizedBox(width: 10),
+
           // 타이핑 말풍선
           Container(
             padding: const EdgeInsets.all(12),
