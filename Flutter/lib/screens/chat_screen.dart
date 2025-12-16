@@ -630,7 +630,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: Padding(
                     padding: EdgeInsets.only(
                       bottom: (!isKeyboardVisible && _messages.isNotEmpty)
-                          ? 70.0
+                          ? 155.0
                           : 0.0,
                     ),
                     child: ListView.builder(
