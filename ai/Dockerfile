@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /  # 실제 위치할 경로
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY app ./app
+
+EXPOSE 8787
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8787"]
